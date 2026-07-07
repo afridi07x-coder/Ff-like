@@ -267,7 +267,8 @@ async def send_like_command(server, uid):
                 seen_ids.add(msg.id)
                 
                 msg_text_norm_upper = normalize_text(msg.text).upper()
-                if uid in msg.text or "LIKES" in msg_text_norm_upper or "FAILD" in msg_text_norm_upper or "MAX" in msg_text_norm_upper:
+                has_keyword = "LIKES" in msg_text_norm_upper or "FAILD" in msg_text_norm_upper or "MAX" in msg_text_norm_upper
+                if uid in msg.text and has_keyword:
                     data = parse_bot_response(msg.text, uid, server)
                     return data
         except:
