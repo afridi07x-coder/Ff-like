@@ -69,7 +69,9 @@ def normalize_text(text):
     Converts ANY stylized Unicode text (bold, italic, fullwidth, circled,
     small-caps/IPA, etc.) down to plain ASCII so regex patterns written in
     normal English always match, regardless of which 'fancy font' style
-    the source text used.
+    the source text used. Also strips Telegram Markdown formatting
+    characters (**bold**, __underline__, etc.) that show up as literal
+    characters right next to field labels/values.
     """
     # Step 1: catch small-caps IPA letters FIRST. Some of them (like the
     # small-caps Q, 'ǫ') would otherwise get silently mangled by NFKD
@@ -78,6 +80,12 @@ def normalize_text(text):
     # Step 2: NFKD compatibility decomposition handles bold/italic/
     # fullwidth/circled/etc. automatically - covers new styles too.
     text = unicodedata.normalize('NFKD', text)
+    text = ''.join(c for c in text if not unicodedata.combining(c))
+    # Step 3: strip Telegram Markdown formatting markers (**bold**,
+    # __underline__, ~~strike~~, `code`) that appear as literal characters
+    # in the message text right next to labels like "**Region:**".
+    text = re.sub(r'\*{1,2}|_{1,2}(?=\S)|(?<=\S)_{1,2}|~~|`', '', text)
+    return text
     text = ''.join(c for c in text if not unicodedata.combining(c))
     return text
 
@@ -94,7 +102,6 @@ def parse_bot_response(text, uid, server):
     text_original = text
     text_norm = normalize_text(text_original)
     text_upper = text_norm.upper()
-    _DEBUG_RAW_B64 = __import__('base64').b64encode(text_original.encode('utf-8')).decode('ascii')
 
     def get_field(label, value_pattern=r'([\d,]+)'):
         """Find 'LABEL: <value>' in the normalized text and return the value
@@ -111,15 +118,15 @@ def parse_bot_response(text, uid, server):
         return 0
 
     def get_name(label='NAME'):
-        """Free-text fields (like the player name) are pulled from the
-        ORIGINAL text at the same position, so casing is preserved instead
-        of coming back as normalized/uppercased text."""
+        """Free-text fields (like the player name) are pulled straight from
+        the normalized text. Note: normalize_text lowercases stylized
+        letters back to their plain form, but real mixed-case names typed
+        in normal ASCII (the common case) pass through untouched."""
         pattern = re.escape(label) + r'\s*:\s*(.+?)(?:\n|$)'
         match = re.search(pattern, text_norm, re.IGNORECASE)
         if not match:
             return 'Unknown'
-        start, end = match.span(1)
-        value = text_original[start:end].strip()
+        value = match.group(1).strip()
         value = re.sub(r'^[\*\s]+', '', value)
         value = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', value)
         return value.strip() or 'Unknown'
@@ -150,7 +157,6 @@ def parse_bot_response(text, uid, server):
             'before': get_number('BEFORE'),
             'after': get_number('AFTER'),
             'credits_left': get_number('CREDITS LEFT'),
-            'debug_raw_b64': _DEBUG_RAW_B64,
         }
 
     # ========================================
@@ -190,51 +196,44 @@ def parse_bot_response(text, uid, server):
 
 # ============= SEND LIKE COMMAND =============
 async def send_like_command(server, uid):
-    """Send like command to group and wait for response"""
+    """Send like command to group and wait for response - event-driven, no polling delay"""
     global results
-    
+
     bot_entity_local = bot_entity
-    
+
     command = f"/like {server} {uid}"
-    sent_msg = await telegram_client.send_message(group_entity, command)
-    print(f"📤 Sent: {command} (id={sent_msg.id})")
-    
-    start_time = time.time()
-    seen_ids = set()
-    max_wait_seconds = 35
-    
-    while time.time() - start_time < max_wait_seconds:
+    result_future = asyncio.get_event_loop().create_future()
+
+    @telegram_client.on(events.NewMessage(chats=group_entity))
+    async def _handler(event):
+        msg = event.message
+        if msg.sender_id != bot_entity_local.id or not msg.text:
+            return
+
+        msg_text_norm_upper = normalize_text(msg.text).upper()
+        has_keyword = "LIKES" in msg_text_norm_upper or "FAILD" in msg_text_norm_upper or "MAX" in msg_text_norm_upper
+        if uid in msg.text and has_keyword:
+            if not result_future.done():
+                data = parse_bot_response(msg.text, uid, server)
+                result_future.set_result(data)
+
+    try:
+        sent_msg = await telegram_client.send_message(group_entity, command)
+        print(f"📤 Sent: {command} (id={sent_msg.id})")
+
         try:
-            async for msg in telegram_client.iter_messages(group_entity, limit=10):
-                if msg.sender_id != bot_entity_local.id or not msg.text:
-                    continue
-                
-                if msg.id <= sent_msg.id:
-                    continue
-                
-                if msg.id in seen_ids:
-                    continue
-                seen_ids.add(msg.id)
-                
-                msg_text_norm_upper = normalize_text(msg.text).upper()
-                has_keyword = "LIKES" in msg_text_norm_upper or "FAILD" in msg_text_norm_upper or "MAX" in msg_text_norm_upper
-                if uid in msg.text and has_keyword:
-                    return {
-                        'success': True,
-                        'uid': str(uid),
-                        'raw_message': msg.text
-                    }
-        except:
-            pass
-        await asyncio.sleep(0.3)
-    
-    print(f"⚠️ No response for UID: {uid}")
-    return {
-        'success': False,
-        'message': 'No response from bot',
-        'uid': str(uid),
-        'region': 'Unknown'
-    }
+            data = await asyncio.wait_for(result_future, timeout=35)
+            return data
+        except asyncio.TimeoutError:
+            print(f"⚠️ No response for UID: {uid}")
+            return {
+                'success': False,
+                'message': 'No response from bot',
+                'uid': str(uid),
+                'region': 'Unknown'
+            }
+    finally:
+        telegram_client.remove_event_handler(_handler)
 
 # ============= FLASK API ENDPOINTS =============
 @app.route('/like', methods=['GET'])
