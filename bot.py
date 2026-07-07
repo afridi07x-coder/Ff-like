@@ -49,53 +49,28 @@ load_results()
 
 # ============= UNICODE NORMALIZATION =============
 _UNICODE_NORMALIZE_MAP = {
-    # Mathematical Bold capitals (𝐀-𝐙)
     **{chr(0x1D400 + i): chr(0x41 + i) for i in range(26)},
-    # Mathematical Bold lowercase (𝐚-𝐳)
     **{chr(0x1D41A + i): chr(0x41 + i) for i in range(26)},
-    # Mathematical Sans-Serif Bold (𝗔-𝗭)
-    **{chr(0x1D5D4 + i): chr(0x41 + i) for i in range(26)},
-    **{chr(0x1D5EE + i): chr(0x41 + i) for i in range(26)},
-    # Mathematical Monospace (𝙰-𝚉)
-    **{chr(0x1D670 + i): chr(0x41 + i) for i in range(26)},
-    **{chr(0x1D68A + i): chr(0x41 + i) for i in range(26)},
-    # Latin letter small caps
     'ᴀ': 'A', 'ʙ': 'B', 'ᴄ': 'C', 'ᴅ': 'D', 'ᴇ': 'E', 'ғ': 'F', 'ɢ': 'G',
     'ʜ': 'H', 'ɪ': 'I', 'ᴊ': 'J', 'ᴋ': 'K', 'ʟ': 'L', 'ᴍ': 'M', 'ɴ': 'N',
-    'ᴏ': 'O', 'ᴘ': 'P', 'ǫ': 'Q', 'ʀ': 'R', 's': 'S', 'ᴛ': 'T', 
-    'ᴜ': 'U', 'ᴠ': 'V', 'ᴡ': 'W', 'x': 'X', 'ʏ': 'Y', 'ᴢ': 'Z',
-    # Cyrillic lookalikes
-    'А': 'A', 'В': 'B', 'С': 'C', 'Е': 'E', 'Н': 'H', 'І': 'I', 
-    'Ј': 'J', 'К': 'K', 'М': 'M', 'О': 'O', 'Р': 'P', 'Т': 'T',
-    'Х': 'X', 'У': 'Y',
+    'ᴏ': 'O', 'ᴘ': 'P', 'ǫ': 'Q', 'ʀ': 'R', 's': 'S',
+    'ᴛ': 'T', 'ᴜ': 'U', 'ᴠ': 'V', 'ᴡ': 'W', 'ʏ': 'Y', 'ᴢ': 'Z',
 }
 _UNICODE_NORMALIZE_TABLE = str.maketrans(_UNICODE_NORMALIZE_MAP)
 
 def normalize_text(text):
-    """Convert all Unicode stylized text to plain ASCII"""
     return text.translate(_UNICODE_NORMALIZE_TABLE)
 
 # ============= PARSE BOT RESPONSE =============
 def parse_bot_response(text, uid, server):
     """
     Parse bot's response and return CLEAN JSON with EXACT fields only.
-    Supports ALL possible response formats.
     """
     
     text_original = text
-    text_normalized = normalize_text(text_original)
-    text_upper = text_normalized.upper()
+    text_upper = normalize_text(text_original).upper()
     
     def extract(patterns, source=text_original, flags=re.IGNORECASE):
-        """Extract using multiple patterns from original text"""
-        for pattern in patterns:
-            match = re.search(pattern, source, flags)
-            if match:
-                return match.group(1).strip()
-        return None
-    
-    def extract_normalized(patterns, source=text_normalized, flags=re.IGNORECASE):
-        """Extract using normalized text (for plain ASCII matching)"""
         for pattern in patterns:
             match = re.search(pattern, source, flags)
             if match:
@@ -103,139 +78,71 @@ def parse_bot_response(text, uid, server):
         return None
     
     def clean_name(name):
-        """Clean player name - remove extra symbols and control chars"""
         if name:
-            # Remove leading **, ##, etc
-            name = re.sub(r'^[\*\#\s]+', '', name)
-            # Remove trailing special chars
+            name = re.sub(r'^[\*\s]+', '', name)
             name = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', name)
-            # Remove extra spaces
-            name = re.sub(r'\s+', ' ', name)
             return name.strip()
         return "Unknown"
     
     def clean_number(value):
-        """Clean number - remove commas and extra chars"""
         if value:
-            value = re.sub(r'[,\s]', '', value)
-            if value.isdigit():
-                return value
+            return value.replace(',', '').strip()
         return None
     
-    # Common patterns for each field (with ALL possible variations)
-    NAME_PATTERNS = [
-        r'👑\s*𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
-        r'👑\s*FF\s*NAME:\s*(.+?)(?:\n|$)',
-        r'𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
-        r'FF\s*NAME:\s*(.+?)(?:\n|$)',
-        r'NAME:\s*(.+?)(?:\n|$)',
-        r'𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
-        r'Player Name:\s*(.+?)(?:\n|$)',
-        r'PLAYER:\s*(.+?)(?:\n|$)',
-    ]
-    
-    UID_PATTERNS = [
-        r'🆔\s*𝐔ɪᴅ:\s*(\d+)',
-        r'🆔\s*UID:\s*(\d+)',
-        r'𝐔ɪᴅ:\s*(\d+)',
-        r'UID:\s*(\d+)',
-        r'ID:\s*(\d+)',
-        r'𝐈ᴅ:\s*(\d+)',
-    ]
-    
-    REGION_PATTERNS = [
-        r'🌍\s*𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
-        r'🌍\s*REGION:\s*([A-Za-z]+)',
-        r'𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
-        r'REGION:\s*([A-Za-z]+)',
-        r'Region:\s*([A-Za-z]+)',
-    ]
-    
-    LIKES_SENT_PATTERNS = [
-        r'💖\s*𝐋ɪᴋᴇs\s*sᴇɴᴛ:\s*([\d,]+)',
-        r'💖\s*LIKES\s*SENT:\s*([\d,]+)',
-        r'𝐋ɪᴋᴇs\s*sᴇɴᴛ:\s*([\d,]+)',
-        r'LIKES\s*SENT:\s*([\d,]+)',
-        r'Likes sent:\s*([\d,]+)',
-    ]
-    
-    BEFORE_PATTERNS = [
-        r'📊\s*𝐁ᴇғᴏʀᴇ:\s*([\d,]+)',
-        r'📊\s*BEFORE:\s*([\d,]+)',
-        r'𝐁ᴇғᴏʀᴇ:\s*([\d,]+)',
-        r'BEFORE:\s*([\d,]+)',
-        r'Before:\s*([\d,]+)',
-    ]
-    
-    AFTER_PATTERNS = [
-        r'📊\s*𝐀ғᴛᴇʀ:\s*([\d,]+)',
-        r'📊\s*AFTER:\s*([\d,]+)',
-        r'𝐀ғᴛᴇʀ:\s*([\d,]+)',
-        r'AFTER:\s*([\d,]+)',
-        r'After:\s*([\d,]+)',
-    ]
-    
-    CREDITS_PATTERNS = [
-        r'🌟\s*𝐒ᴛᴀᴛᴜs:\s*𝐂ʀᴇᴅɪᴛs\s*ʟᴇғᴛ:\s*([\d,]+)',
-        r'🌟\s*STATUS:\s*CREDITS\s*LEFT:\s*([\d,]+)',
-        r'𝐂ʀᴇᴅɪᴛs\s*ʟᴇғᴛ:\s*([\d,]+)',
-        r'CREDITS\s*LEFT:\s*([\d,]+)',
-        r'Credits left:\s*([\d,]+)',
-        r'Credits Left:\s*([\d,]+)',
-    ]
-    
-    CURRENT_LIKES_PATTERNS = [
-        r'💖\s*𝐂ᴜʀʀᴇɴᴛ\s*ʟɪᴋᴇs:\s*([\d,]+)',
-        r'💖\s*CURRENT\s*LIKES:\s*([\d,]+)',
-        r'𝐂ᴜʀʀᴇɴᴛ\s*ʟɪᴋᴇs:\s*([\d,]+)',
-        r'CURRENT\s*LIKES:\s*([\d,]+)',
-        r'Current likes:\s*([\d,]+)',
-        r'Current Likes:\s*([\d,]+)',
-    ]
-    
     # ========================================
-    # CHECK FOR ALL POSSIBLE SUCCESS INDICATORS
+    # 1. SUCCESS - VIP Like Successful
     # ========================================
-    success_indicators = [
-        'VIP LIKE SUCCESSFULL',
-        'LIKES SENT',
-        '𝐕ɪᴘ 𝐋ɪᴋᴇ sᴜᴄᴄᴇssғᴜʟʟ',
-        'LIKE SUCCESS',
-        'SUCCESSFULL',
-        'LIKES ADDED',
-        'LIKE ADDED'
-    ]
-    
-    if any(ind in text_upper for ind in success_indicators):
-        name = extract(NAME_PATTERNS)
-        uid_val = extract(UID_PATTERNS)
-        region = extract(REGION_PATTERNS)
-        likes_sent = extract(LIKES_SENT_PATTERNS)
-        before = extract(BEFORE_PATTERNS)
-        after = extract(AFTER_PATTERNS)
-        credits_left = extract(CREDITS_PATTERNS)
+    if 'VIP LIKE SUCCESSFULL' in text_upper or 'LIKES SENT' in text_upper or '𝐕ɪᴘ 𝐋ɪᴋᴇ sᴜᴄᴄᴇssғᴜʟʟ' in text_upper:
+        name = extract([
+            r'👑\s*𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
+            r'👑\s*FF\s*NAME:\s*(.+?)(?:\n|$)',
+            r'𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
+            r'FF NAME:\s*(.+?)(?:\n|$)',
+            r'NAME:\s*(.+?)(?:\n|$)'
+        ])
         
-        # Try normalized patterns if not found
-        if not name:
-            name = extract_normalized(NAME_PATTERNS)
-        if not uid_val:
-            uid_val = extract_normalized(UID_PATTERNS)
-        if not region:
-            region = extract_normalized(REGION_PATTERNS)
-        if not likes_sent:
-            likes_sent = extract_normalized(LIKES_SENT_PATTERNS)
-        if not before:
-            before = extract_normalized(BEFORE_PATTERNS)
-        if not after:
-            after = extract_normalized(AFTER_PATTERNS)
-        if not credits_left:
-            credits_left = extract_normalized(CREDITS_PATTERNS)
+        uid_val = extract([
+            r'🆔\s*𝐔ɪᴅ:\s*(\d+)',
+            r'🆔\s*UID:\s*(\d+)',
+            r'𝐔ɪᴅ:\s*(\d+)',
+            r'ID:\s*(\d+)',
+            r'UID:\s*(\d+)'
+        ])
         
-        # Fallback: extract UID from text if not found
-        if not uid_val:
-            uid_match = re.search(r'(\d{8,12})', text_original)
-            if uid_match:
-                uid_val = uid_match.group(1)
+        region = extract([
+            r'🌍\s*𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
+            r'🌍\s*REGION:\s*([A-Za-z]+)',
+            r'𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
+            r'REGION:\s*([A-Za-z]+)'
+        ])
+        
+        likes_sent = extract([
+            r'💖\s*𝐋ɪᴋᴇs\s*sᴇɴᴛ:\s*([\d,]+)',
+            r'💖\s*LIKES\s*SENT:\s*([\d,]+)',
+            r'𝐋ɪᴋᴇs\s*sᴇɴᴛ:\s*([\d,]+)',
+            r'LIKES SENT:\s*([\d,]+)'
+        ])
+        
+        before = extract([
+            r'📊\s*𝐁ᴇғᴏʀᴇ:\s*([\d,]+)',
+            r'📊\s*BEFORE:\s*([\d,]+)',
+            r'𝐁ᴇғᴏʀᴇ:\s*([\d,]+)',
+            r'BEFORE:\s*([\d,]+)'
+        ])
+        
+        after = extract([
+            r'📊\s*𝐀ғᴛᴇʀ:\s*([\d,]+)',
+            r'📊\s*AFTER:\s*([\d,]+)',
+            r'𝐀ғᴛᴇʀ:\s*([\d,]+)',
+            r'AFTER:\s*([\d,]+)'
+        ])
+        
+        credits_left = extract([
+            r'🌟\s*𝐒ᴛᴀᴛᴜs:\s*𝐂ʀᴇᴅɪᴛs\s*ʟᴇғᴛ:\s*([\d,]+)',
+            r'🌟\s*STATUS:\s*CREDITS\s*LEFT:\s*([\d,]+)',
+            r'𝐂ʀᴇᴅɪᴛs\s*ʟᴇғᴛ:\s*([\d,]+)',
+            r'CREDITS LEFT:\s*([\d,]+)'
+        ])
         
         return {
             'success': True,
@@ -250,39 +157,41 @@ def parse_bot_response(text, uid, server):
         }
     
     # ========================================
-    # CHECK FOR MAX LIKED INDICATORS
+    # 2. MAX LIKED - Account already max liked
     # ========================================
-    max_liked_indicators = [
-        'ACCOUNT ALREADY MAX LIKED',
-        'MAX LIKED TODAY',
-        'ALREADY MAX',
-        '𝐀ᴄᴄᴏᴜɴᴛ ᴀʟʀᴇᴀᴅʏ ᴍᴀx ʟɪᴋᴇᴅ ᴛᴏᴅᴀʏ',
-        'MAX LIKES REACHED',
-        'DAILY LIMIT',
-        'MAXIMUM LIKES'
-    ]
-    
-    if any(ind in text_upper for ind in max_liked_indicators):
-        name = extract(NAME_PATTERNS)
-        uid_val = extract(UID_PATTERNS)
-        region = extract(REGION_PATTERNS)
-        current_likes = extract(CURRENT_LIKES_PATTERNS)
+    elif 'ACCOUNT ALREADY MAX LIKED' in text_upper or 'MAX LIKED TODAY' in text_upper or 'ALREADY MAX' in text_upper or '𝐀ᴄᴄᴏᴜɴᴛ ᴀʟʀᴇᴀᴅʏ ᴍᴀx ʟɪᴋᴇᴅ ᴛᴏᴅᴀʏ' in text_upper:
+        name = extract([
+            r'👑\s*𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
+            r'👑\s*FF\s*NAME:\s*(.+?)(?:\n|$)',
+            r'𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
+            r'FF NAME:\s*(.+?)(?:\n|$)'
+        ])
         
-        # Try normalized patterns if not found
-        if not name:
-            name = extract_normalized(NAME_PATTERNS)
-        if not uid_val:
-            uid_val = extract_normalized(UID_PATTERNS)
-        if not region:
-            region = extract_normalized(REGION_PATTERNS)
-        if not current_likes:
-            current_likes = extract_normalized(CURRENT_LIKES_PATTERNS)
+        uid_val = extract([
+            r'🆔\s*𝐔ɪᴅ:\s*(\d+)',
+            r'🆔\s*UID:\s*(\d+)',
+            r'𝐔ɪᴅ:\s*(\d+)',
+            r'ID:\s*(\d+)'
+        ])
         
-        # Fallback: extract UID from text if not found
         if not uid_val:
-            uid_match = re.search(r'(\d{8,12})', text_original)
+            uid_match = re.search(r'(\d{10,11})', text_original)
             if uid_match:
                 uid_val = uid_match.group(1)
+        
+        region = extract([
+            r'🌍\s*𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
+            r'🌍\s*REGION:\s*([A-Za-z]+)',
+            r'𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
+            r'REGION:\s*([A-Za-z]+)'
+        ])
+        
+        current_likes = extract([
+            r'💖\s*𝐂ᴜʀʀᴇɴᴛ\s*ʟɪᴋᴇs:\s*([\d,]+)',
+            r'💖\s*CURRENT\s*LIKES:\s*([\d,]+)',
+            r'𝐂ᴜʀʀᴇɴᴛ\s*ʟɪᴋᴇs:\s*([\d,]+)',
+            r'CURRENT LIKES:\s*([\d,]+)'
+        ])
         
         return {
             'success': False,
@@ -295,34 +204,22 @@ def parse_bot_response(text, uid, server):
         }
     
     # ========================================
-    # CHECK FOR FAILED INDICATORS
+    # 3. FAILED - Like Request Failed
     # ========================================
-    failed_indicators = [
-        'LIKE REQUEST FAILD',
-        'REQUEST FAILD',
-        '𝐋ɪᴋᴇ 𝐑ᴇǫᴜᴇsᴛ ғᴀɪʟᴅ',
-        'REQUEST FAILED',
-        'LIKE FAILED',
-        'FAILED',
-        'INVALID UID',
-        'WRONG UID'
-    ]
-    
-    if any(ind in text_upper for ind in failed_indicators):
-        uid_val = extract(UID_PATTERNS)
-        region = extract(REGION_PATTERNS)
+    elif 'LIKE REQUEST FAILD' in text_upper or 'REQUEST FAILD' in text_upper or '𝐋ɪᴋᴇ 𝐑ᴇǫᴜᴇsᴛ ғᴀɪʟᴅ' in text_upper:
+        uid_val = extract([
+            r'🆔\s*𝐔ɪᴅ:\s*(\d+)',
+            r'🆔\s*UID:\s*(\d+)',
+            r'𝐔ɪᴅ:\s*(\d+)',
+            r'UID:\s*(\d+)'
+        ])
         
-        # Try normalized patterns if not found
-        if not uid_val:
-            uid_val = extract_normalized(UID_PATTERNS)
-        if not region:
-            region = extract_normalized(REGION_PATTERNS)
-        
-        # Fallback: extract UID from text if not found
-        if not uid_val:
-            uid_match = re.search(r'(\d{8,12})', text_original)
-            if uid_match:
-                uid_val = uid_match.group(1)
+        region = extract([
+            r'🌍\s*𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
+            r'🌍\s*REGION:\s*([A-Za-z]+)',
+            r'𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
+            r'REGION:\s*([A-Za-z]+)'
+        ])
         
         return {
             'success': False,
@@ -332,48 +229,11 @@ def parse_bot_response(text, uid, server):
         }
     
     # ========================================
-    # CHECK FOR CREDIT INSUFFICIENT
-    # ========================================
-    if 'INSUFFICIENT CREDIT' in text_upper or 'NO CREDIT' in text_upper or 'CREDIT BALANCE' in text_upper:
-        region = extract(REGION_PATTERNS)
-        if not region:
-            region = extract_normalized(REGION_PATTERNS)
-        
-        return {
-            'success': False,
-            'message': 'Insufficient credits. Please recharge.',
-            'uid': str(uid),
-            'region': region.upper() if region else 'Unknown'
-        }
-    
-    # ========================================
-    # CHECK FOR WRONG FORMAT
-    # ========================================
-    if 'WRONG FORMAT' in text_upper or 'INVALID FORMAT' in text_upper:
-        return {
-            'success': False,
-            'message': 'Wrong format. Use: /like [region] [uid]',
-            'uid': str(uid),
-            'region': 'Unknown'
-        }
-    
-    # ========================================
-    # CHECK FOR BOT OFFLINE / MAINTENANCE
-    # ========================================
-    if 'MAINTENANCE' in text_upper or 'OFFLINE' in text_upper or 'DOWN' in text_upper:
-        return {
-            'success': False,
-            'message': 'Bot is currently offline or under maintenance.',
-            'uid': str(uid),
-            'region': 'Unknown'
-        }
-    
-    # ========================================
     # UNKNOWN / UNRECOGNIZED RESPONSE
     # ========================================
     return {
         'success': False,
-        'message': 'Unknown response from bot.',
+        'message': 'Unknown response',
         'uid': str(uid),
         'region': 'Unknown'
     }
@@ -391,11 +251,11 @@ async def send_like_command(server, uid):
     
     start_time = time.time()
     seen_ids = set()
-    max_wait_seconds = 40  # Increased timeout
+    max_wait_seconds = 35
     
     while time.time() - start_time < max_wait_seconds:
         try:
-            async for msg in telegram_client.iter_messages(group_entity, limit=15):
+            async for msg in telegram_client.iter_messages(group_entity, limit=10):
                 if msg.sender_id != bot_entity_local.id or not msg.text:
                     continue
                 
@@ -406,29 +266,18 @@ async def send_like_command(server, uid):
                     continue
                 seen_ids.add(msg.id)
                 
-                # Check if this message is a response to our command
-                msg_text = msg.text
-                msg_upper = normalize_text(msg_text).upper()
-                
-                # Check for various response indicators
-                response_indicators = [
-                    'LIKES', 'FAILD', 'MAX', 'SUCCESS', 'FAILED', 
-                    'INSUFFICIENT', 'CREDIT', 'ERROR', 'INVALID',
-                    '𝐕ɪᴘ', '𝐀ᴄᴄᴏᴜɴᴛ', '𝐋ɪᴋᴇ'
-                ]
-                
-                if uid in msg_text or any(ind in msg_upper for ind in response_indicators):
-                    data = parse_bot_response(msg_text, uid, server)
+                msg_text_norm_upper = normalize_text(msg.text).upper()
+                if uid in msg.text or "LIKES" in msg_text_norm_upper or "FAILD" in msg_text_norm_upper or "MAX" in msg_text_norm_upper:
+                    data = parse_bot_response(msg.text, uid, server)
                     return data
-        except Exception as e:
-            print(f"Error in message loop: {e}")
+        except:
             pass
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
     
     print(f"⚠️ No response for UID: {uid}")
     return {
         'success': False,
-        'message': 'No response from bot. Timeout.',
+        'message': 'No response from bot',
         'uid': str(uid),
         'region': 'Unknown'
     }
@@ -455,7 +304,7 @@ def handle_like():
     )
     
     try:
-        data = result.result(timeout=45)
+        data = result.result(timeout=40)
         with processing_lock:
             results.append(data)
             save_results()
@@ -490,15 +339,15 @@ def handle_bulk_like():
             )
             
             try:
-                res = result.result(timeout=45)
+                res = result.result(timeout=40)
                 results_list.append(res)
                 with processing_lock:
                     results.append(res)
                 save_results()
-            except Exception as e:
+            except:
                 results_list.append({
                     'success': False,
-                    'message': f'Timeout or error: {str(e)}',
+                    'message': 'Timeout or error',
                     'uid': str(uid),
                 })
         
