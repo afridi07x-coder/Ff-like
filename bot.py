@@ -68,9 +68,10 @@ def parse_bot_response(text, uid, server):
     """
     
     text_original = text
-    text_upper = normalize_text(text_original).upper()
+    text_norm = normalize_text(text_original)
+    text_upper = text_norm.upper()
     
-    def extract(patterns, source=text_original, flags=re.IGNORECASE):
+    def extract(patterns, source=text_norm, flags=re.IGNORECASE):
         for pattern in patterns:
             match = re.search(pattern, source, flags)
             if match:
@@ -94,54 +95,38 @@ def parse_bot_response(text, uid, server):
     # ========================================
     if 'VIP LIKE SUCCESSFULL' in text_upper or 'LIKES SENT' in text_upper or '𝐕ɪᴘ 𝐋ɪᴋᴇ sᴜᴄᴄᴇssғᴜʟʟ' in text_upper:
         name = extract([
-            r'👑\s*𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
-            r'👑\s*FF\s*NAME:\s*(.+?)(?:\n|$)',
-            r'𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
-            r'FF NAME:\s*(.+?)(?:\n|$)',
             r'NAME:\s*(.+?)(?:\n|$)'
-        ])
+        ], source=normalize_text(text_original))
+        if name:
+            # re-extract the same span from the ORIGINAL text to preserve casing
+            name_match = re.search(r'NAME:\s*(.+?)(?:\n|$)', normalize_text(text_original), re.IGNORECASE)
+            if name_match:
+                start, end = name_match.span(1)
+                name = text_original[start:end].strip()
         
         uid_val = extract([
-            r'🆔\s*𝐔ɪᴅ:\s*(\d+)',
-            r'🆔\s*UID:\s*(\d+)',
-            r'𝐔ɪᴅ:\s*(\d+)',
-            r'ID:\s*(\d+)',
-            r'UID:\s*(\d+)'
+            r'UID:\s*(\d+)',
+            r'ID:\s*(\d+)'
         ])
         
         region = extract([
-            r'🌍\s*𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
-            r'🌍\s*REGION:\s*([A-Za-z]+)',
-            r'𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
             r'REGION:\s*([A-Za-z]+)'
         ])
         
         likes_sent = extract([
-            r'💖\s*𝐋ɪᴋᴇs\s*sᴇɴᴛ:\s*([\d,]+)',
-            r'💖\s*LIKES\s*SENT:\s*([\d,]+)',
-            r'𝐋ɪᴋᴇs\s*sᴇɴᴛ:\s*([\d,]+)',
-            r'LIKES SENT:\s*([\d,]+)'
+            r'LIKES\s*SENT:\s*([\d,]+)'
         ])
         
         before = extract([
-            r'📊\s*𝐁ᴇғᴏʀᴇ:\s*([\d,]+)',
-            r'📊\s*BEFORE:\s*([\d,]+)',
-            r'𝐁ᴇғᴏʀᴇ:\s*([\d,]+)',
             r'BEFORE:\s*([\d,]+)'
         ])
         
         after = extract([
-            r'📊\s*𝐀ғᴛᴇʀ:\s*([\d,]+)',
-            r'📊\s*AFTER:\s*([\d,]+)',
-            r'𝐀ғᴛᴇʀ:\s*([\d,]+)',
             r'AFTER:\s*([\d,]+)'
         ])
         
         credits_left = extract([
-            r'🌟\s*𝐒ᴛᴀᴛᴜs:\s*𝐂ʀᴇᴅɪᴛs\s*ʟᴇғᴛ:\s*([\d,]+)',
-            r'🌟\s*STATUS:\s*CREDITS\s*LEFT:\s*([\d,]+)',
-            r'𝐂ʀᴇᴅɪᴛs\s*ʟᴇғᴛ:\s*([\d,]+)',
-            r'CREDITS LEFT:\s*([\d,]+)'
+            r'CREDITS\s*LEFT:\s*([\d,]+)'
         ])
         
         return {
@@ -160,17 +145,14 @@ def parse_bot_response(text, uid, server):
     # 2. MAX LIKED - Account already max liked
     # ========================================
     elif 'ACCOUNT ALREADY MAX LIKED' in text_upper or 'MAX LIKED TODAY' in text_upper or 'ALREADY MAX' in text_upper or '𝐀ᴄᴄᴏᴜɴᴛ ᴀʟʀᴇᴀᴅʏ ᴍᴀx ʟɪᴋᴇᴅ ᴛᴏᴅᴀʏ' in text_upper:
-        name = extract([
-            r'👑\s*𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
-            r'👑\s*FF\s*NAME:\s*(.+?)(?:\n|$)',
-            r'𝐅𝐅\s*𝐍ᴀᴍᴇ:\s*(.+?)(?:\n|$)',
-            r'FF NAME:\s*(.+?)(?:\n|$)'
-        ])
+        name_match = re.search(r'NAME:\s*(.+?)(?:\n|$)', normalize_text(text_original), re.IGNORECASE)
+        name = None
+        if name_match:
+            start, end = name_match.span(1)
+            name = text_original[start:end].strip()
         
         uid_val = extract([
-            r'🆔\s*𝐔ɪᴅ:\s*(\d+)',
-            r'🆔\s*UID:\s*(\d+)',
-            r'𝐔ɪᴅ:\s*(\d+)',
+            r'UID:\s*(\d+)',
             r'ID:\s*(\d+)'
         ])
         
@@ -180,17 +162,11 @@ def parse_bot_response(text, uid, server):
                 uid_val = uid_match.group(1)
         
         region = extract([
-            r'🌍\s*𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
-            r'🌍\s*REGION:\s*([A-Za-z]+)',
-            r'𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
             r'REGION:\s*([A-Za-z]+)'
         ])
         
         current_likes = extract([
-            r'💖\s*𝐂ᴜʀʀᴇɴᴛ\s*ʟɪᴋᴇs:\s*([\d,]+)',
-            r'💖\s*CURRENT\s*LIKES:\s*([\d,]+)',
-            r'𝐂ᴜʀʀᴇɴᴛ\s*ʟɪᴋᴇs:\s*([\d,]+)',
-            r'CURRENT LIKES:\s*([\d,]+)'
+            r'CURRENT\s*LIKES:\s*([\d,]+)'
         ])
         
         return {
@@ -208,16 +184,10 @@ def parse_bot_response(text, uid, server):
     # ========================================
     elif 'LIKE REQUEST FAILD' in text_upper or 'REQUEST FAILD' in text_upper or '𝐋ɪᴋᴇ 𝐑ᴇǫᴜᴇsᴛ ғᴀɪʟᴅ' in text_upper:
         uid_val = extract([
-            r'🆔\s*𝐔ɪᴅ:\s*(\d+)',
-            r'🆔\s*UID:\s*(\d+)',
-            r'𝐔ɪᴅ:\s*(\d+)',
             r'UID:\s*(\d+)'
         ])
         
         region = extract([
-            r'🌍\s*𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
-            r'🌍\s*REGION:\s*([A-Za-z]+)',
-            r'𝐑ᴇɢɪᴏɴ:\s*([A-Za-z]+)',
             r'REGION:\s*([A-Za-z]+)'
         ])
         
