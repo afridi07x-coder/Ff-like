@@ -94,6 +94,7 @@ def parse_bot_response(text, uid, server):
     text_original = text
     text_norm = normalize_text(text_original)
     text_upper = text_norm.upper()
+    _DEBUG_RAW_B64 = __import__('base64').b64encode(text_original.encode('utf-8')).decode('ascii')
 
     def get_field(label, value_pattern=r'([\d,]+)'):
         """Find 'LABEL: <value>' in the normalized text and return the value
@@ -149,6 +150,7 @@ def parse_bot_response(text, uid, server):
             'before': get_number('BEFORE'),
             'after': get_number('AFTER'),
             'credits_left': get_number('CREDITS LEFT'),
+            'debug_raw_b64': _DEBUG_RAW_B64,
         }
 
     # ========================================
@@ -217,8 +219,11 @@ async def send_like_command(server, uid):
                 msg_text_norm_upper = normalize_text(msg.text).upper()
                 has_keyword = "LIKES" in msg_text_norm_upper or "FAILD" in msg_text_norm_upper or "MAX" in msg_text_norm_upper
                 if uid in msg.text and has_keyword:
-                    data = parse_bot_response(msg.text, uid, server)
-                    return data
+                    return {
+                        'success': True,
+                        'uid': str(uid),
+                        'raw_message': msg.text
+                    }
         except:
             pass
         await asyncio.sleep(0.3)
@@ -346,9 +351,13 @@ def get_results():
 
 @app.route('/', methods=['GET'])
 def home():
+    # quick self-test to prove the deployed parser is the fixed version
+    test_msg = "🌍 𝐑ᴇɢɪᴏɴ: IND\n📊 𝐁ᴇғᴏʀᴇ: 227\n📊𝐀ғᴛᴇʀ: 280"
+    test_result = parse_bot_response(test_msg, "0", "ind")
     return jsonify({
         'bot': BOT_NAME,
-        'version': BOT_VERSION
+        'version': BOT_VERSION,
+        'parser_selftest': test_result
     })
 
 @app.route('/health', methods=['GET'])
