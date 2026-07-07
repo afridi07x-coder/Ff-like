@@ -11,6 +11,9 @@ import threading
 import time
 
 # ============= CONFIGURATION =============
+BOT_NAME = "FelixLikeBot"
+BOT_VERSION = "2.3"
+
 API_ID = 34635054
 API_HASH = "b8e93ca4f3abdcba65cc020504f82f08"
 GROUP_USERNAME = "freefirelikegroup2"
@@ -48,156 +51,131 @@ def save_results():
 load_results()
 
 # ============= UNICODE NORMALIZATION =============
-_UNICODE_NORMALIZE_MAP = {
-    **{chr(0x1D400 + i): chr(0x41 + i) for i in range(26)},
-    **{chr(0x1D41A + i): chr(0x41 + i) for i in range(26)},
-    'ᴀ': 'A', 'ʙ': 'B', 'ᴄ': 'C', 'ᴅ': 'D', 'ᴇ': 'E', 'ғ': 'F', 'ɢ': 'G',
-    'ʜ': 'H', 'ɪ': 'I', 'ᴊ': 'J', 'ᴋ': 'K', 'ʟ': 'L', 'ᴍ': 'M', 'ɴ': 'N',
-    'ᴏ': 'O', 'ᴘ': 'P', 'ǫ': 'Q', 'ʀ': 'R', 's': 'S',
-    'ᴛ': 'T', 'ᴜ': 'U', 'ᴠ': 'V', 'ᴡ': 'W', 'ʏ': 'Y', 'ᴢ': 'Z',
+import unicodedata
+
+# Small-caps / IPA-style letters used by "fancy text" generators that
+# Unicode's own NFKD decomposition does NOT cover (these are treated as
+# distinct phonetic letters, not stylistic variants of A-Z).
+_SMALLCAPS_MAP = {
+    'ᴀ':'a','ʙ':'b','ᴄ':'c','ᴅ':'d','ᴇ':'e','ғ':'f','ɢ':'g','ʜ':'h',
+    'ɪ':'i','ᴊ':'j','ᴋ':'k','ʟ':'l','ᴍ':'m','ɴ':'n','ᴏ':'o','ᴘ':'p',
+    'ǫ':'q','ʀ':'r','s':'s','ᴛ':'t','ᴜ':'u','ᴠ':'v','ᴡ':'w',
+    'ʏ':'y','ᴢ':'z',
 }
-_UNICODE_NORMALIZE_TABLE = str.maketrans(_UNICODE_NORMALIZE_MAP)
+_SMALLCAPS_TABLE = str.maketrans(_SMALLCAPS_MAP)
 
 def normalize_text(text):
-    return text.translate(_UNICODE_NORMALIZE_TABLE)
+    """
+    Converts ANY stylized Unicode text (bold, italic, fullwidth, circled,
+    small-caps/IPA, etc.) down to plain ASCII so regex patterns written in
+    normal English always match, regardless of which 'fancy font' style
+    the source text used.
+    """
+    # Step 1: catch small-caps IPA letters FIRST. Some of them (like the
+    # small-caps Q, 'ǫ') would otherwise get silently mangled by NFKD
+    # decomposition below (NFKD turns 'ǫ' into a plain 'o', not 'q').
+    text = text.translate(_SMALLCAPS_TABLE)
+    # Step 2: NFKD compatibility decomposition handles bold/italic/
+    # fullwidth/circled/etc. automatically - covers new styles too.
+    text = unicodedata.normalize('NFKD', text)
+    text = ''.join(c for c in text if not unicodedata.combining(c))
+    return text
 
 # ============= PARSE BOT RESPONSE =============
 def parse_bot_response(text, uid, server):
     """
-    Parse bot's response and return CLEAN JSON with EXACT fields only.
+    Parse the Telegram like-bot's reply and return a clean JSON dict.
+
+    Works by normalizing the whole message to plain ASCII first (so any
+    bold/italic/fullwidth/small-caps style text becomes normal English),
+    then pulling out "LABEL: value" style fields with one generic helper.
     """
-    
+
     text_original = text
     text_norm = normalize_text(text_original)
     text_upper = text_norm.upper()
-    
-    def extract(patterns, source=text_norm, flags=re.IGNORECASE):
-        for pattern in patterns:
-            match = re.search(pattern, source, flags)
-            if match:
-                return match.group(1).strip()
-        return None
-    
-    def clean_name(name):
-        if name:
-            name = re.sub(r'^[\*\s]+', '', name)
-            name = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', name)
-            return name.strip()
-        return "Unknown"
-    
-    def clean_number(value):
-        if value:
-            return value.replace(',', '').strip()
-        return None
-    
+
+    def get_field(label, value_pattern=r'([\d,]+)'):
+        """Find 'LABEL: <value>' in the normalized text and return the value
+        (as a string). value_pattern controls what counts as the value:
+        digits/commas by default, or pass r'(.+?)(?:\\n|$)' for free text."""
+        pattern = re.escape(label) + r'\s*:\s*' + value_pattern
+        match = re.search(pattern, text_norm, re.IGNORECASE)
+        return match.group(1).strip() if match else None
+
+    def get_number(label):
+        val = get_field(label)
+        if val:
+            return int(val.replace(',', ''))
+        return 0
+
+    def get_name(label='NAME'):
+        """Free-text fields (like the player name) are pulled from the
+        ORIGINAL text at the same position, so casing is preserved instead
+        of coming back as normalized/uppercased text."""
+        pattern = re.escape(label) + r'\s*:\s*(.+?)(?:\n|$)'
+        match = re.search(pattern, text_norm, re.IGNORECASE)
+        if not match:
+            return 'Unknown'
+        start, end = match.span(1)
+        value = text_original[start:end].strip()
+        value = re.sub(r'^[\*\s]+', '', value)
+        value = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', value)
+        return value.strip() or 'Unknown'
+
+    def get_uid():
+        val = get_field('UID')
+        if val:
+            return val
+        # fallback: any 10-11 digit number in the raw text
+        match = re.search(r'(\d{10,11})', text_original)
+        return match.group(1) if match else str(uid)
+
+    def get_region():
+        val = get_field('REGION', value_pattern=r'([A-Za-z]+)')
+        return val.upper() if val else 'Unknown'
+
     # ========================================
     # 1. SUCCESS - VIP Like Successful
     # ========================================
-    if 'VIP LIKE SUCCESSFULL' in text_upper or 'LIKES SENT' in text_upper or '𝐕ɪᴘ 𝐋ɪᴋᴇ sᴜᴄᴄᴇssғᴜʟʟ' in text_upper:
-        name = extract([
-            r'NAME:\s*(.+?)(?:\n|$)'
-        ], source=normalize_text(text_original))
-        if name:
-            # re-extract the same span from the ORIGINAL text to preserve casing
-            name_match = re.search(r'NAME:\s*(.+?)(?:\n|$)', normalize_text(text_original), re.IGNORECASE)
-            if name_match:
-                start, end = name_match.span(1)
-                name = text_original[start:end].strip()
-        
-        uid_val = extract([
-            r'UID:\s*(\d+)',
-            r'ID:\s*(\d+)'
-        ])
-        
-        region = extract([
-            r'REGION:\s*([A-Za-z]+)'
-        ])
-        
-        likes_sent = extract([
-            r'LIKES\s*SENT:\s*([\d,]+)'
-        ])
-        
-        before = extract([
-            r'BEFORE:\s*([\d,]+)'
-        ])
-        
-        after = extract([
-            r'AFTER:\s*([\d,]+)'
-        ])
-        
-        credits_left = extract([
-            r'CREDITS\s*LEFT:\s*([\d,]+)'
-        ])
-        
+    if 'VIP LIKE SUCCESSFULL' in text_upper or 'LIKES SENT' in text_upper:
         return {
             'success': True,
             'message': 'Likes Sent Successfully',
-            'player_name': clean_name(name) if name else 'Unknown',
-            'uid': uid_val if uid_val else str(uid),
-            'region': region.upper() if region else 'Unknown',
-            'likes_sent': int(clean_number(likes_sent)) if likes_sent else 0,
-            'before': int(clean_number(before)) if before else 0,
-            'after': int(clean_number(after)) if after else 0,
-            'credits_left': int(clean_number(credits_left)) if credits_left else 0
+            'player_name': get_name(),
+            'uid': get_uid(),
+            'region': get_region(),
+            'likes_sent': get_number('LIKES SENT'),
+            'before': get_number('BEFORE'),
+            'after': get_number('AFTER'),
+            'credits_left': get_number('CREDITS LEFT'),
         }
-    
+
     # ========================================
     # 2. MAX LIKED - Account already max liked
     # ========================================
-    elif 'ACCOUNT ALREADY MAX LIKED' in text_upper or 'MAX LIKED TODAY' in text_upper or 'ALREADY MAX' in text_upper or '𝐀ᴄᴄᴏᴜɴᴛ ᴀʟʀᴇᴀᴅʏ ᴍᴀx ʟɪᴋᴇᴅ ᴛᴏᴅᴀʏ' in text_upper:
-        name_match = re.search(r'NAME:\s*(.+?)(?:\n|$)', normalize_text(text_original), re.IGNORECASE)
-        name = None
-        if name_match:
-            start, end = name_match.span(1)
-            name = text_original[start:end].strip()
-        
-        uid_val = extract([
-            r'UID:\s*(\d+)',
-            r'ID:\s*(\d+)'
-        ])
-        
-        if not uid_val:
-            uid_match = re.search(r'(\d{10,11})', text_original)
-            if uid_match:
-                uid_val = uid_match.group(1)
-        
-        region = extract([
-            r'REGION:\s*([A-Za-z]+)'
-        ])
-        
-        current_likes = extract([
-            r'CURRENT\s*LIKES:\s*([\d,]+)'
-        ])
-        
+    if 'ACCOUNT ALREADY MAX LIKED' in text_upper or 'MAX LIKED TODAY' in text_upper or 'ALREADY MAX' in text_upper:
         return {
             'success': False,
             'message': "Account already reached today's maximum likes.",
-            'player_name': clean_name(name) if name else 'Unknown',
-            'uid': uid_val if uid_val else str(uid),
-            'region': region.upper() if region else 'Unknown',
-            'current_likes': int(clean_number(current_likes)) if current_likes else 0,
-            'credit_restored': True
+            'player_name': get_name(),
+            'uid': get_uid(),
+            'region': get_region(),
+            'current_likes': get_number('CURRENT LIKES'),
+            'credit_restored': True,
         }
-    
+
     # ========================================
     # 3. FAILED - Like Request Failed
     # ========================================
-    elif 'LIKE REQUEST FAILD' in text_upper or 'REQUEST FAILD' in text_upper or '𝐋ɪᴋᴇ 𝐑ᴇǫᴜᴇsᴛ ғᴀɪʟᴅ' in text_upper:
-        uid_val = extract([
-            r'UID:\s*(\d+)'
-        ])
-        
-        region = extract([
-            r'REGION:\s*([A-Za-z]+)'
-        ])
-        
+    if 'LIKE REQUEST FAILD' in text_upper or 'REQUEST FAILD' in text_upper:
         return {
             'success': False,
             'message': 'Like request failed. Please check the UID and region.',
-            'uid': uid_val if uid_val else str(uid),
-            'region': region.upper() if region else 'Unknown'
+            'uid': get_uid(),
+            'region': get_region(),
         }
-    
+
     # ========================================
     # UNKNOWN / UNRECOGNIZED RESPONSE
     # ========================================
@@ -205,7 +183,7 @@ def parse_bot_response(text, uid, server):
         'success': False,
         'message': 'Unknown response',
         'uid': str(uid),
-        'region': 'Unknown'
+        'region': 'Unknown',
     }
 
 # ============= SEND LIKE COMMAND =============
@@ -364,6 +342,13 @@ def get_results():
         'success': True,
         'total': len(results),
         'results': results[-limit:]
+    })
+
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        'bot': BOT_NAME,
+        'version': BOT_VERSION
     })
 
 @app.route('/health', methods=['GET'])
